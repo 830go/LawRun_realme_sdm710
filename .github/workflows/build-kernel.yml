@@ -31,18 +31,31 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu flex bison bc libncurses-dev
 
       # 4. 应用官方补丁 (Step 3)
-      - name: Apply official non-GKI patches
+      - name: Apply official non-GKI patches (with file existence check)
         working-directory: kernel
         run: |
-          echo "Applying DroidSpaces official non-GKI patches..."
-          for patch in ${{ github.workspace }}/patches/*.patch; do
-            echo "==> Applying $(basename "$patch")"
-            patch -p1 < "$patch" || {
-              echo "ERROR: Failed to apply patch: $(basename "$patch")"
-              exit 1
-            }
-          done
-          echo "All patches applied."
+          echo "Checking and applying DroidSpaces official non-GKI patches..."
+          
+          # 补丁1：修复 xt_qtaguid 内核 panic
+          PATCH1="${{ github.workspace }}/patches/01.fix_kernel_panic_in_xt_qtaguid.patch"
+          if [ -f "net/netfilter/xt_qtaguid.c" ]; then
+            echo "==> Applying 01.fix_kernel_panic_in_xt_qtaguid.patch"
+            patch -p1 < "$PATCH1" || { echo "ERROR: Failed to apply $PATCH1"; exit 1; }
+          else
+            echo "==> SKIPPED 01.fix_kernel_panic_in_xt_qtaguid.patch (xt_qtaguid.c not found in source)"
+          fi
+          
+          # 补丁2：修复 cgroup 文件前缀处理
+          PATCH2="${{ github.workspace }}/patches/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch"
+          # 该补丁通常修改 kernel/cgroup/cgroup.c，先检测
+          if [ -f "kernel/cgroup/cgroup.c" ]; then
+            echo "==> Applying 02.fix_restore cgroup file prefix handling.patch"
+            patch -p1 < "$PATCH2" || { echo "ERROR: Failed to apply $PATCH2"; exit 1; }
+          else
+            echo "==> SKIPPED 02.fix_restore cgroup file prefix handling.patch (cgroup.c not found in source)"
+          fi
+          
+          echo "Patch application phase completed."
 
       # 5. 配置内核 (Step 1 & 关键修复)
       - name: Configure kernel with DroidSpaces options
