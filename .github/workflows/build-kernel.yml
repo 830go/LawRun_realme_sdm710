@@ -35,21 +35,20 @@ jobs:
           rm -rf drivers/kernelsu
           git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
 
-          # 修正 drivers/Kconfig 中的引用路径：从 kernelsu/Kconfig 改为 kernelsu/kernel/Kconfig
+          # 修正 drivers/Kconfig 中的引用路径
           if grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
             sed -i 's|source "drivers/kernelsu/Kconfig"|source "drivers/kernelsu/kernel/Kconfig"|' drivers/Kconfig
           else
             echo 'source "drivers/kernelsu/kernel/Kconfig"' >> drivers/Kconfig
           fi
 
-          # 确保 drivers/Makefile 中有编译 KSU 的条目
+          # 确保 drivers/Makefile 有 KSU 编译目标
           if ! grep -q 'kernelsu' drivers/Makefile; then
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
 
-          # 验证 Kconfig 确实存在
           if [ ! -f drivers/kernelsu/kernel/Kconfig ]; then
-            echo "ERROR: drivers/kernelsu/kernel/Kconfig still missing!"
+            echo "ERROR: drivers/kernelsu/kernel/Kconfig not found!"
             exit 1
           fi
           echo "=== KernelSU integration complete ==="
@@ -139,14 +138,25 @@ jobs:
           CONFIG_ANDROID_PARANOID_NETWORK=n
           EOF
 
-      # 7. 编译内核
+      # 7. 编译内核 (修复 CPU 掩码交互问题)
       - name: Build kernel
         working-directory: kernel
         run: |
           set -euo pipefail
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+
           make RMX1971_defconfig
+
+          # 修复因缺失 CPU 掩码值导致的交互式询问
+          # SDM712 通常为 8 核 (2+6 或 4+4)，这里采用通用的 4+4 掩码
+          scripts/config --set-val LITTLE_CPU_MASK 0x0f
+          scripts/config --set-val BIG_CPU_MASK 0x30
+
+          # 自动以默认值回答所有新的配置项
+          make olddefconfig
+
+          # 正式编译
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
       # 8. 上传产物
