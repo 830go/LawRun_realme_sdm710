@@ -128,17 +128,14 @@ jobs:
 
           make RMX1971_defconfig
 
-          # 创建强制默认配置文件，提供缺失的 CPU 掩码值
-          # 格式必须是内核接受的合法值（十进制数字，不带 0x）
-          cat > .alldefconfig <<EOF
-          LITTLE_CPU_MASK=15
-          BIG_CPU_MASK=48
-          EOF
+          # 用 scripts/config 写入十进制掩码值（SDM712: 4小核 + 2大核）
+          scripts/config --set-val LITTLE_CPU_MASK 15
+          scripts/config --set-val BIG_CPU_MASK 48
 
-          # 使用该文件作为所有新配置项的默认答案，完全非交互
-          make KCONFIG_ALLCONFIG=.alldefconfig olddefconfig
+          # 以默认值完成其余配置，不再交互
+          make olddefconfig
 
-          # 开始正式编译
+          # 编译内核
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
       # 8. 上传
