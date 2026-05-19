@@ -48,11 +48,11 @@ jobs:
           fi
           echo "=== KernelSU integrated ==="
 
-      # 4. 安装编译依赖
+      # 4. 安装编译依赖 (增加 ARM32 交叉编译器)
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gcc-aarch64-linux-gnu flex bison bc libncurses-dev
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf flex bison bc libncurses-dev
 
       # 5. 应用 DroidSpaces 补丁
       - name: Apply DroidSpaces patches
@@ -118,27 +118,25 @@ jobs:
           CONFIG_ANDROID_PARANOID_NETWORK=n
           EOF
 
-      # 7. 编译内核（用 KCONFIG_ALLCONFIG 彻底解决交互询问）
+      # 7. 编译内核 (设置 ARM32 交叉编译器)
       - name: Build kernel
         working-directory: kernel
         run: |
           set -euo pipefail
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
 
           make RMX1971_defconfig
 
-          # 用 scripts/config 写入十进制掩码值（SDM712: 4小核 + 2大核）
+          # 写入正确的 CPU 掩码 (十进制)
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
 
-          # 以默认值完成其余配置，不再交互
           make olddefconfig
-
-          # 编译内核
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
-      # 8. 上传
+      # 8. 上传产物
       - uses: actions/upload-artifact@v4
         with:
           name: KSU-Kernel-RMX1971
