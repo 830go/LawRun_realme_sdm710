@@ -1,4 +1,4 @@
-name: Build Kernel with KSU and DroidSpaces
+name: Build KSU + DroidSpaces Kernel
 
 on:
   workflow_dispatch:
@@ -11,64 +11,71 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      # 1. 检出你的内核源码 (LawRun)
+      # 1. 检出内核源码
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
           repository: negrroo/LawRun_realme_sdm710
           path: kernel
 
-      # 2. 下载 DroidSpaces 官方补丁
+      # 2. 下载 DroidSpaces 补丁
       - name: Download DroidSpaces non-GKI patches
         run: |
-          mkdir -p ${{ github.workspace }}/patches
-          cd ${{ github.workspace }}/patches
-          wget https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/01.fix_kernel_panic_in_xt_qtaguid.patch
-          wget https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch
+          mkdir -p patches
+          cd patches
+          wget -q https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/01.fix_kernel_panic_in_xt_qtaguid.patch
+          wget -q https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch
 
-      # 3. 集成 KernelSU 源码 (修复 "can't open file drivers/kernelsu/Kconfig")
+      # 3. ⚠️ 集成 KernelSU (必须运行，并确保成功)
       - name: Integrate KernelSU source
         working-directory: kernel
         run: |
-          # 删除空的占位目录（如果有）
+          set -euo pipefail   # 任何错误都会立即退出
+          echo "=== Integrating KernelSU ==="
+          # 删除可能存在的空目录
           rm -rf drivers/kernelsu
-          # 克隆 KernelSU 源码到正确位置
-          git clone https://github.com/tiann/KernelSU.git drivers/kernelsu
-          # 确保 Kconfig 引用正确
-          if ! grep -q "source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig; then
+          # 浅克隆 KernelSU 源码
+          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
+          # 确保 Kconfig 引用存在
+          if ! grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig; then
             echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           fi
-          echo "KernelSU integrated."
+          # 验证关键文件确实存在
+          if [ ! -f drivers/kernelsu/Kconfig ]; then
+            echo "ERROR: drivers/kernelsu/Kconfig still missing after clone!"
+            exit 1
+          fi
+          echo "=== KernelSU integration complete ==="
 
       # 4. 安装编译依赖
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu flex bison bc libncurses-dev
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu flex bison bc libncurses-dev
 
       # 5. 应用 DroidSpaces 补丁 (缺失文件自动跳过)
-      - name: Apply official non-GKI patches (skip if file missing)
+      - name: Apply DroidSpaces patches
         working-directory: kernel
         run: |
           echo "Applying patches..."
-          PATCH1="${{ github.workspace }}/patches/01.fix_kernel_panic_in_xt_qtaguid.patch"
+          PATCH1="../patches/01.fix_kernel_panic_in_xt_qtaguid.patch"
           if [ -f "net/netfilter/xt_qtaguid.c" ]; then
-            patch -p1 < "$PATCH1" || exit 1
+            patch -p1 < "$PATCH1"
             echo "Patch 01 applied."
           else
-            echo "SKIPPED patch 01 (file not found)"
+            echo "SKIPPED patch 01 (xt_qtaguid.c not found)"
           fi
 
-          PATCH2="${{ github.workspace }}/patches/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch"
+          PATCH2="../patches/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch"
           if [ -f "kernel/cgroup/cgroup.c" ]; then
-            patch -p1 < "$PATCH2" || exit 1
+            patch -p1 < "$PATCH2"
             echo "Patch 02 applied."
           else
-            echo "SKIPPED patch 02 (file not found)"
+            echo "SKIPPED patch 02 (cgroup.c not found)"
           fi
 
-      # 6. 追加 DroidSpaces 必要配置到 RMX1971_defconfig
-      - name: Append DroidSpaces configs
+      # 6. 追加 DroidSpaces 配置
+      - name: Append DroidSpaces config to defconfig
         working-directory: kernel
         run: |
           cat >> arch/arm64/configs/RMX1971_defconfig << 'EOF'
@@ -129,14 +136,14 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
+          set -euo pipefail
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           make RMX1971_defconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
       # 8. 上传产物
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: KSU-Kernel-RMX1971
           path: |
