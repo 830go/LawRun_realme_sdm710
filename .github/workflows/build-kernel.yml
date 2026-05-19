@@ -134,8 +134,9 @@ jobs:
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
 
-          # 删除有问题的 oppo_cfs 模块（它缺少内部头文件，且非必需）
+          # 彻底移除 oppo_cfs 模块
           rm -rf kernel/oppocfs
+          sed -i '/oppocfs/d' kernel/Makefile
 
           make olddefconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
