@@ -26,7 +26,7 @@ jobs:
           wget -q https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/01.fix_kernel_panic_in_xt_qtaguid.patch
           wget -q https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch
 
-      # 3. 集成 KernelSU (修正路径)
+      # 3. 集成 KernelSU
       - name: Integrate KernelSU source
         working-directory: kernel
         run: |
@@ -34,24 +34,19 @@ jobs:
           echo "=== Integrating KernelSU ==="
           rm -rf drivers/kernelsu
           git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
-
-          # 修正 drivers/Kconfig 中的引用路径
           if grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
             sed -i 's|source "drivers/kernelsu/Kconfig"|source "drivers/kernelsu/kernel/Kconfig"|' drivers/Kconfig
           else
             echo 'source "drivers/kernelsu/kernel/Kconfig"' >> drivers/Kconfig
           fi
-
-          # 确保 drivers/Makefile 有 KSU 编译目标
           if ! grep -q 'kernelsu' drivers/Makefile; then
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           fi
-
           if [ ! -f drivers/kernelsu/kernel/Kconfig ]; then
-            echo "ERROR: drivers/kernelsu/kernel/Kconfig not found!"
+            echo "ERROR: KSU Kconfig not found!"
             exit 1
           fi
-          echo "=== KernelSU integration complete ==="
+          echo "=== KernelSU integrated ==="
 
       # 4. 安装编译依赖
       - name: Install build dependencies
@@ -63,25 +58,13 @@ jobs:
       - name: Apply DroidSpaces patches
         working-directory: kernel
         run: |
-          echo "Applying patches..."
           PATCH1="../patches/01.fix_kernel_panic_in_xt_qtaguid.patch"
-          if [ -f "net/netfilter/xt_qtaguid.c" ]; then
-            patch -p1 < "$PATCH1"
-            echo "Patch 01 applied."
-          else
-            echo "SKIPPED patch 01 (xt_qtaguid.c not found)"
-          fi
-
+          [ -f net/netfilter/xt_qtaguid.c ] && patch -p1 < "$PATCH1" || echo "Skip 01"
           PATCH2="../patches/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch"
-          if [ -f "kernel/cgroup/cgroup.c" ]; then
-            patch -p1 < "$PATCH2"
-            echo "Patch 02 applied."
-          else
-            echo "SKIPPED patch 02 (cgroup.c not found)"
-          fi
+          [ -f kernel/cgroup/cgroup.c ] && patch -p1 < "$PATCH2" || echo "Skip 02"
 
-      # 6. 追加 DroidSpaces 内核配置
-      - name: Append DroidSpaces config to defconfig
+      # 6. 追加 DroidSpaces 配置
+      - name: Append DroidSpaces configs
         working-directory: kernel
         run: |
           cat >> arch/arm64/configs/RMX1971_defconfig << 'EOF'
@@ -109,8 +92,7 @@ jobs:
           CONFIG_FW_LOADER=y
           CONFIG_FW_LOADER_USER_HELPER=y
           CONFIG_FW_LOADER_COMPRESS=y
-
-          # Droidspaces 网络支持
+          # 网络
           CONFIG_NET_NS=y
           CONFIG_VETH=y
           CONFIG_BRIDGE=y
@@ -130,15 +112,13 @@ jobs:
           CONFIG_NF_NAT_REDIRECT=y
           CONFIG_IP_ADVANCED_ROUTER=y
           CONFIG_IP_MULTIPLE_TABLES=y
-
-          # 旧版内核兼容 & 关键修复
           CONFIG_NF_CONNTRACK_IPV4=y
           CONFIG_NF_NAT_IPV4=y
           CONFIG_IP_NF_NAT=y
           CONFIG_ANDROID_PARANOID_NETWORK=n
           EOF
 
-      # 7. 编译内核 (修复 CPU 掩码交互问题)
+      # 7. 编译内核（用 KCONFIG_ALLCONFIG 彻底解决交互询问）
       - name: Build kernel
         working-directory: kernel
         run: |
@@ -148,18 +128,20 @@ jobs:
 
           make RMX1971_defconfig
 
-          # 修复因缺失 CPU 掩码值导致的交互式询问
-          # SDM712 通常为 8 核 (2+6 或 4+4)，这里采用通用的 4+4 掩码
-          scripts/config --set-val LITTLE_CPU_MASK 0x0f
-          scripts/config --set-val BIG_CPU_MASK 0x30
+          # 创建强制默认配置文件，提供缺失的 CPU 掩码值
+          # 格式必须是内核接受的合法值（十进制数字，不带 0x）
+          cat > .alldefconfig <<EOF
+          LITTLE_CPU_MASK=15
+          BIG_CPU_MASK=48
+          EOF
 
-          # 自动以默认值回答所有新的配置项
-          make olddefconfig
+          # 使用该文件作为所有新配置项的默认答案，完全非交互
+          make KCONFIG_ALLCONFIG=.alldefconfig olddefconfig
 
-          # 正式编译
+          # 开始正式编译
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
-      # 8. 上传产物
+      # 8. 上传
       - uses: actions/upload-artifact@v4
         with:
           name: KSU-Kernel-RMX1971
