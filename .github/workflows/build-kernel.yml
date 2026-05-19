@@ -14,7 +14,9 @@ jobs:
       # 1. 检出你的内核源码
       - name: Checkout kernel source
         uses: actions/checkout@v4
-
+        with:
+          repository: negrroo/LawRun_realme_sdm710
+          path: kernel
 
       # 2. 获取官方补丁文件
       - name: Download DroidSpaces non-GKI patches
@@ -30,39 +32,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu flex bison bc libncurses-dev
 
-      # 4. 应用官方补丁 (Step 3)
-      - name: Apply official non-GKI patches (with file existence check)
+      # 4. 应用官方补丁 (智能跳过缺失文件)
+      - name: Apply official non-GKI patches (skip if file missing)
         working-directory: kernel
         run: |
           echo "Checking and applying DroidSpaces official non-GKI patches..."
           
-          # 补丁1：修复 xt_qtaguid 内核 panic
           PATCH1="${{ github.workspace }}/patches/01.fix_kernel_panic_in_xt_qtaguid.patch"
           if [ -f "net/netfilter/xt_qtaguid.c" ]; then
             echo "==> Applying 01.fix_kernel_panic_in_xt_qtaguid.patch"
             patch -p1 < "$PATCH1" || { echo "ERROR: Failed to apply $PATCH1"; exit 1; }
           else
-            echo "==> SKIPPED 01.fix_kernel_panic_in_xt_qtaguid.patch (xt_qtaguid.c not found in source)"
+            echo "==> SKIPPED 01.fix_kernel_panic_in_xt_qtaguid.patch (xt_qtaguid.c not found)"
           fi
           
-          # 补丁2：修复 cgroup 文件前缀处理
           PATCH2="${{ github.workspace }}/patches/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch"
-          # 该补丁通常修改 kernel/cgroup/cgroup.c，先检测
           if [ -f "kernel/cgroup/cgroup.c" ]; then
             echo "==> Applying 02.fix_restore cgroup file prefix handling.patch"
             patch -p1 < "$PATCH2" || { echo "ERROR: Failed to apply $PATCH2"; exit 1; }
           else
-            echo "==> SKIPPED 02.fix_restore cgroup file prefix handling.patch (cgroup.c not found in source)"
+            echo "==> SKIPPED 02.fix_restore cgroup file prefix handling.patch (cgroup.c not found)"
           fi
           
           echo "Patch application phase completed."
 
-      # 5. 配置内核 (Step 1 & 关键修复)
+      # 5. 配置内核选项 (使用正确的 RMX1971_defconfig)
       - name: Configure kernel with DroidSpaces options
         working-directory: kernel
         run: |
-          cat >> arch/arm64/configs/sdm710_defconfig << 'EOF'
-          # Droidspaces 核心支持 (Step 1)
+          cat >> arch/arm64/configs/RMX1971_defconfig << 'EOF'
+          # Droidspaces 核心支持
           CONFIG_SYSCTL=y
           CONFIG_SYSVIPC=y
           CONFIG_POSIX_MQUEUE=y
@@ -87,7 +86,7 @@ jobs:
           CONFIG_FW_LOADER_USER_HELPER=y
           CONFIG_FW_LOADER_COMPRESS=y
 
-          # Droidspaces 网络支持 (Step 1)
+          # Droidspaces 网络支持
           CONFIG_NET_NS=y
           CONFIG_VETH=y
           CONFIG_BRIDGE=y
@@ -108,7 +107,7 @@ jobs:
           CONFIG_IP_ADVANCED_ROUTER=y
           CONFIG_IP_MULTIPLE_TABLES=y
 
-          # 旧版内核兼容 & 关键修复 (Step 1)
+          # 旧版内核兼容 & 关键修复
           CONFIG_NF_CONNTRACK_IPV4=y
           CONFIG_NF_NAT_IPV4=y
           CONFIG_IP_NF_NAT=y
@@ -121,14 +120,14 @@ jobs:
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          make sdm710_defconfig
+          make RMX1971_defconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
       # 7. 上传编译产物
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Image-Fixed
+          name: Kernel-Image-RMX1971
           path: |
             kernel/arch/arm64/boot/Image.gz
             kernel/arch/arm64/boot/dts/qcom/*.dtb
