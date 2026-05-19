@@ -134,12 +134,12 @@ jobs:
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
 
-          # 禁用 oppo_cfs 模块（其代码依赖不存在的 sched.h）
-          scripts/config --disable CONFIG_OPPO_CFS 2>/dev/null || true
+          # 删除有问题的 oppo_cfs 模块（它缺少内部头文件，且非必需）
+          rm -rf kernel/oppocfs
 
           make olddefconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
-
+          
       # 8. Debug: 编译失败时自动提取错误行
       - name: Extract errors from build log
         if: steps.build.outcome == 'failure'
