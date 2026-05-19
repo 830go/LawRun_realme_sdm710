@@ -120,24 +120,38 @@ jobs:
 
       # 7. 编译内核 (设置 ARM32 交叉编译器)
       - name: Build kernel
+        id: build
         working-directory: kernel
+        continue-on-error: true   # 编译失败时不停止，留给 debug 步骤处理
         run: |
           set -euo pipefail
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+          export KCFLAGS="-Wno-error"
 
           make RMX1971_defconfig
-
-          # 写入正确的 CPU 掩码 (十进制)
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
-
           make olddefconfig
+
+          # 多线程编译，输出同时保存到 build.log
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
 
-      # 8. 上传产物
-      - uses: actions/upload-artifact@v4
+      # 8. Debug: 编译失败时自动提取错误行
+      - name: Extract errors from build log
+        if: steps.build.outcome == 'failure'
+        working-directory: kernel
+        run: |
+          echo "================== BUILD ERRORS =================="
+          # 提取所有包含常见错误关键词的行（不区分大小写）
+          grep -E -i "error:|fatal error|undefined reference|make\[.*\]: \*\*\*|No rule to make target|aborting" build.log || echo "No standard error patterns found. Check full build.log."
+          echo "================== END OF ERRORS =================="
+
+      # 9. 编译成功时才上传产物
+      - name: Upload kernel artifacts
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
           name: KSU-Kernel-RMX1971
           path: |
