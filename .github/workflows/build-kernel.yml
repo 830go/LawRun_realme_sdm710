@@ -134,20 +134,17 @@ jobs:
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
 
-          # ========== 统一清理有问题的模块 ==========
-          # 1. oppo_cfs
+          # 1. 清理 oppo_cfs
           rm -rf kernel/oppocfs
           sed -i '/oppocfs/d' kernel/Makefile
 
-          # 2. btfm_slim (蓝牙源码不完整)
-          rm -f drivers/bluetooth/btfm_slim.c drivers/bluetooth/btfm_slim.h
-          sed -i '/btfm_slim/d' drivers/bluetooth/Makefile
-
-          # 3. 可能还有其它缺头文件的蓝牙文件，提前预防性删除（如果存在）
-          #    内核中完整的蓝牙子系统并不依赖这些私有文件，放心删除
-          rm -f drivers/bluetooth/btfm_slim_codec.c drivers/bluetooth/btfm_slim_hw_interface.c
-          sed -i '/btfm_slim_codec/d' drivers/bluetooth/Makefile
-          sed -i '/btfm_slim_hw_interface/d' drivers/bluetooth/Makefile
+          # 2. 禁用蓝牙子系统（避免头文件缺失）
+          #    先尝试用 Kconfig 禁用，失败则直接删除目录并从 drivers/Makefile 移除
+          scripts/config --disable CONFIG_BT 2>/dev/null || {
+            echo "Kconfig disable failed, removing drivers/bluetooth entirely..."
+            rm -rf drivers/bluetooth
+            sed -i '/bluetooth/d' drivers/Makefile
+          }
 
           make olddefconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
