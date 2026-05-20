@@ -134,9 +134,17 @@ jobs:
           scripts/config --set-val LITTLE_CPU_MASK 15
           scripts/config --set-val BIG_CPU_MASK 48
 
-          # 彻底移除 oppo_cfs 模块
+          # 彻底移除有问题的 oppo_cfs
           rm -rf kernel/oppocfs
           sed -i '/oppocfs/d' kernel/Makefile
+
+          # 处理缺失头文件的 btfm_slim 蓝牙模块
+          # 先尝试用配置禁用它，失败则直接删除文件
+          scripts/config --disable BT_FM_SLIM 2>/dev/null || \
+          scripts/config --disable BTFM_SLIM 2>/dev/null || \
+          { echo "Disable via config failed, removing btfm_slim files..."; \
+            rm -f drivers/bluetooth/btfm_slim.c; \
+            sed -i '/btfm_slim/d' drivers/bluetooth/Makefile; }
 
           make olddefconfig
           make -j$(nproc) Image.gz dtbs 2>&1 | tee build.log
